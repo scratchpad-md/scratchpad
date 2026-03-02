@@ -15,6 +15,8 @@ let showPreview = true;
 let showLineNumbers = true;
 let activeMenu = null;
 let isResizing = false;
+let showAiPanel = false;
+let aiStreaming = ''; // accumulates current assistant response
 
 // ============================================================================
 // DOM REFS
@@ -33,6 +35,12 @@ const statusChars = $('status-chars');
 const statusFile = $('status-file');
 const statusModified = $('status-modified');
 const toolbarTitle = $('toolbar-title');
+const aiPanel = $('ai-panel');
+const aiMessages = $('ai-messages');
+const aiInput = $('ai-input');
+const aiGoBtn = $('ai-go-btn');
+const aiCancelBtn = $('ai-cancel-btn');
+const aiCloseBtn = $('ai-close-btn');
 
 // ============================================================================
 // README CONTENT
@@ -62,14 +70,15 @@ A markdown notepad with **Y2K soul**. Inspired by \`notepad.exe\`, built in Rust
 | Cmd+I | Italic |
 | Cmd+Z | Undo |
 | Cmd+Shift+Z | Redo |
+| Cmd+Shift+A | AI Assistant |
 
-## Roadmap
+## AI Assistant
 
-- **v2**: Integrate [claude-agent-acp](https://github.com/zed-industries/claude-agent-acp) for AI-assisted editing
+Open the AI panel with **Cmd+Shift+A** or the AI menu. Ask the AI to edit, improve, summarize, or fix grammar in your document. Powered by [claude-agent-acp](https://github.com/zed-industries/claude-agent-acp).
 
 ---
 
-> *v0.1.0 — 2026*
+> *v0.2.0 — 2026*
 `;
 
 // ============================================================================
@@ -313,6 +322,10 @@ const ACTIONS = {
   'link':                 () => wrapSelection('[', '](url)'),
   'code':                 () => wrapSelection('```\n', '\n```'),
   'about':                () => loadReadme(),
+  'toggle-ai':            () => toggleAiPanel(),
+  'ai-improve':           () => aiSendQuickAction('Improve the writing in this markdown document. Make it clearer, more concise, and better structured. Write the improved version back to the file.'),
+  'ai-summarize':         () => aiSendQuickAction('Summarize this markdown document in a few bullet points. Write a concise summary back to the file, keeping the original content below a "## Summary" heading at the top.'),
+  'ai-fix-grammar':       () => aiSendQuickAction('Fix all grammar, spelling, and punctuation errors in this markdown document. Preserve the original meaning and structure. Write the corrected version back to the file.'),
 };
 
 function handleAction(action) {
@@ -371,6 +384,13 @@ document.addEventListener('keydown', (e) => {
   if (key === 's') {
     e.preventDefault();
     handleAction(e.shiftKey ? 'save-as' : 'save');
+    return;
+  }
+
+  // Cmd+Shift+A — toggle AI panel
+  if (key === 'a' && e.shiftKey) {
+    e.preventDefault();
+    handleAction('toggle-ai');
     return;
   }
 
@@ -462,6 +482,155 @@ try {
 } catch {
   // Fallback: native drag-drop not available
 }
+
+// ============================================================================
+// AI PANEL
+// ============================================================================
+
+function toggleAiPanel() {
+  showAiPanel = !showAiPanel;
+  aiPanel.classList.toggle('hidden', !showAiPanel);
+  if (showAiPanel) aiInput.focus();
+}
+
+function aiAddMessage(text, type) {
+  const div = document.createElement('div');
+  div.className = `ai-msg ai-msg-${type}`;
+  div.textContent = text;
+  aiMessages.appendChild(div);
+  aiMessages.scrollTop = aiMessages.scrollHeight;
+  return div;
+}
+
+// Live-updating element for streaming assistant responses
+let aiStreamEl = null;
+
+function aiStartStream() {
+  aiStreaming = '';
+  aiStreamEl = aiAddMessage('', 'assistant');
+}
+
+function aiAppendStream(text) {
+  aiStreaming += text;
+  if (aiStreamEl) aiStreamEl.textContent = aiStreaming;
+  aiMessages.scrollTop = aiMessages.scrollHeight;
+}
+
+function aiEndStream() {
+  aiStreamEl = null;
+  aiStreaming = '';
+}
+
+// Apply new content to editor preserving undo stack
+function applyToEditor(content) {
+  if (content === editor.value) return;
+  editor.focus();
+  editor.select();
+  document.execCommand('insertText', false, content);
+  markModified();
+  updatePreview();
+  updateLineNumbers();
+  updateStatus();
+}
+
+// Re-read the current file from disk and apply to editor
+async function refreshEditorFromDisk() {
+  if (!currentFile) return;
+  try {
+    const content = await readTextFile(currentFile);
+    if (content !== editor.value) {
+      applyToEditor(content);
+    }
+  } catch {}
+}
+
+async function aiSend(text) {
+  if (!text.trim()) return;
+
+  // Show panel if hidden
+  if (!showAiPanel) toggleAiPanel();
+
+  aiAddMessage(text, 'user');
+  aiInput.value = '';
+  aiCancelBtn.disabled = false;
+  aiGoBtn.disabled = true;
+
+  aiStartStream();
+
+  try {
+    // prompt() handles full lifecycle: spawn → init → session → prompt → cleanup
+    await ACP.prompt(text, editor.value, currentFile);
+  } catch (err) {
+    aiAddMessage('Error: ' + err.message, 'error');
+  }
+
+  // Final re-read: pick up any disk writes the agent made
+  await refreshEditorFromDisk();
+
+  aiEndStream();
+  aiCancelBtn.disabled = true;
+  aiGoBtn.disabled = false;
+}
+
+function aiSendQuickAction(instruction) {
+  if (!editor.value.trim()) {
+    if (!showAiPanel) toggleAiPanel();
+    aiAddMessage('No document content to work with.', 'system');
+    return;
+  }
+  aiSend(instruction);
+}
+
+// ACP callbacks
+ACP.setEditorBridge(
+  () => editor.value,
+  (content) => {
+    applyToEditor(content);
+    aiAddMessage('Document updated.', 'tool');
+  }
+);
+
+ACP.setCallbacks({
+  onUpdate: (sid, update) => {
+    const type = update.sessionUpdate;
+    if (type === 'agent_message_chunk' && update.content?.type === 'text') {
+      aiAppendStream(update.content.text);
+    } else if (type === 'tool_call') {
+      aiAddMessage(update.title || 'Working...', 'tool');
+    } else if (type === 'tool_call_update' && update.status === 'completed') {
+      // Agent wrote to disk — re-read file into editor
+      if (update.kind === 'edit' || update.kind === 'write') {
+        refreshEditorFromDisk();
+      }
+    }
+  },
+  onStatus: (status, msg) => {
+    if (status === 'connecting') {
+      aiAddMessage('Connecting to AI agent...', 'system');
+    } else if (status === 'error') {
+      aiAddMessage('Agent: ' + (msg || 'disconnected'), 'error');
+    }
+  },
+  onError: (err) => {
+    aiAddMessage('Agent error: ' + err, 'error');
+  },
+});
+
+// AI panel event listeners
+aiGoBtn.addEventListener('click', () => aiSend(aiInput.value));
+aiInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    aiSend(aiInput.value);
+  }
+});
+aiCancelBtn.addEventListener('click', () => {
+  ACP.cancel();
+  aiAddMessage('Cancelled.', 'system');
+  aiCancelBtn.disabled = true;
+  aiGoBtn.disabled = false;
+});
+aiCloseBtn.addEventListener('click', () => toggleAiPanel());
 
 // ============================================================================
 // INIT

@@ -9,6 +9,18 @@
     "dialog:default",
     "fs:default",
     "fs:allow-read-text-file",
-    "fs:allow-write-text-file"
+    "fs:allow-write-text-file",
+    "fs:allow-mkdir",
+    "fs:allow-exists",
+    {
+      "identifier": "fs:scope",
+      "allow": [{ "path": "/tmp/scratchpad-md/**" }]
+    },
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [{ "name": "binaries/claude-agent-acp", "sidecar": true }]
+    },
+    "shell:allow-stdin-write",
+    "shell:allow-kill"
   ]
 }
