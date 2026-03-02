@@ -533,13 +533,18 @@ function applyToEditor(content) {
   updateStatus();
 }
 
-// Re-read the current file from disk and apply to editor
+// Re-read the current file from disk and apply to editor (no focus steal)
 async function refreshEditorFromDisk() {
   if (!currentFile) return;
   try {
     const content = await readTextFile(currentFile);
     if (content !== editor.value) {
-      applyToEditor(content);
+      editor.value = content;
+      isModified = true;
+      updateTitle();
+      updatePreview();
+      updateLineNumbers();
+      updateStatus();
     }
   } catch {}
 }
@@ -597,10 +602,18 @@ ACP.setCallbacks({
       aiAppendStream(update.content.text);
     } else if (type === 'tool_call') {
       aiAddMessage(update.title || 'Working...', 'tool');
-    } else if (type === 'tool_call_update' && update.status === 'completed') {
-      // Agent wrote to disk — re-read file into editor
-      if (update.kind === 'edit' || update.kind === 'write') {
-        refreshEditorFromDisk();
+    } else if (type === 'tool_call_update') {
+      // Look for diff content blocks — apply newText directly to editor
+      const contents = update.content || [];
+      for (const block of contents) {
+        if (block.type === 'diff' && block.newText != null) {
+          editor.value = block.newText;
+          isModified = true;
+          updateTitle();
+          updatePreview();
+          updateLineNumbers();
+          updateStatus();
+        }
       }
     }
   },

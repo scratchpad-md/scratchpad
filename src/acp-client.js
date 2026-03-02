@@ -85,7 +85,11 @@ window.ACP = (function () {
     }
 
     if (msg.method === 'session/update') {
-      if (onUpdate) onUpdate(msg.params.sessionId, msg.params.update);
+      const upd = msg.params.update;
+      if (upd.sessionUpdate === 'tool_call_update') {
+        console.log('[ACP tool_call_update]', JSON.stringify(upd).substring(0, 500));
+      }
+      if (onUpdate) onUpdate(msg.params.sessionId, upd);
       return;
     }
 
