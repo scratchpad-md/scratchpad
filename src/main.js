@@ -1,7 +1,7 @@
 // scratchpad.md — Y2K markdown notepad
 // Built with Tauri v2 + vanilla JS
 
-const { open, save, message } = window.__TAURI__.dialog;
+const { open, save, message, ask } = window.__TAURI__.dialog;
 const { readTextFile, writeTextFile, readDir } = window.__TAURI__.fs;
 const { getCurrentWindow } = window.__TAURI__.window;
 
@@ -171,9 +171,11 @@ function markModified() {
 async function newFile() {
   if (isModified) {
     try {
-      const discard = await message('You have unsaved changes. Discard them?', {
+      const discard = await ask('You have unsaved changes. Discard them?', {
         title: 'scratchpad.md',
         kind: 'warning',
+        okLabel: 'Discard',
+        cancelLabel: 'Cancel',
       });
       if (!discard) return;
     } catch {
@@ -645,9 +647,11 @@ function renderSidebar() {
 async function openFileFromTree(path) {
   if (isModified) {
     try {
-      const discard = await message('You have unsaved changes. Discard them?', {
+      const discard = await ask('You have unsaved changes. Discard them?', {
         title: 'scratchpad.md',
         kind: 'warning',
+        okLabel: 'Discard',
+        cancelLabel: 'Cancel',
       });
       if (!discard) return;
     } catch {}
@@ -830,17 +834,33 @@ ACP.setCallbacks({
     } else if (type === 'tool_call') {
       aiAddMessage(update.title || 'Working...', 'tool');
     } else if (type === 'tool_call_update') {
-      // Look for diff content blocks — apply newText directly to editor
+      // Apply diff content blocks surgically
       const contents = update.content || [];
       for (const block of contents) {
-        if (block.type === 'diff' && block.newText != null) {
+        if (block.type !== 'diff' || block.newText == null) continue;
+
+        if (block.oldText != null) {
+          // Partial diff (Edit tool) — find oldText in document and replace
+          const current = editor.value;
+          const idx = current.indexOf(block.oldText);
+          if (idx !== -1) {
+            const patched = current.substring(0, idx)
+                          + block.newText
+                          + current.substring(idx + block.oldText.length);
+            editor.value = patched;
+          } else {
+            // oldText not found — skip, disk refresh at end will catch it
+            continue;
+          }
+        } else {
+          // No oldText = full file content (Write tool / new file)
           editor.value = block.newText;
-          isModified = true;
-          updateTitle();
-          updatePreview();
-          updateLineNumbers();
-          updateStatus();
         }
+        isModified = true;
+        updateTitle();
+        updatePreview();
+        updateLineNumbers();
+        updateStatus();
       }
     }
   },
