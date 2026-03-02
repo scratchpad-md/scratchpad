@@ -22,6 +22,14 @@ let showSidebar = false;
 let folderTree = [];
 let isSidebarResizing = false;
 
+// Diff review state
+let diffState = 'idle';      // 'idle' | 'streaming' | 'reviewing'
+let preAiSnapshot = null;     // editor content before AI started
+let postAiContent = null;     // editor content after AI finished
+let diffHunks = [];           // Hunk[] from DiffEngine
+let currentHunkIndex = 0;
+let scrollDebounceTimer = null;
+
 // ============================================================================
 // DOM REFS
 // ============================================================================
@@ -50,6 +58,14 @@ const aiInput = $('ai-input');
 const aiGoBtn = $('ai-go-btn');
 const aiCancelBtn = $('ai-cancel-btn');
 const aiCloseBtn = $('ai-close-btn');
+const editorOverlay = $('editor-overlay');
+const reviewBar = $('review-bar');
+const reviewAcceptAll = $('review-accept-all');
+const reviewRejectAll = $('review-reject-all');
+const reviewPrev = $('review-prev');
+const reviewNext = $('review-next');
+const reviewCounter = $('review-counter');
+const previewHeader = document.querySelector('.preview-header');
 
 // ============================================================================
 // README CONTENT
@@ -342,8 +358,11 @@ const ACTIONS = {
   'ai-fix-grammar':       () => aiSendQuickAction('Fix all grammar, spelling, and punctuation errors in this markdown document. Preserve the original meaning and structure. Write the corrected version back to the file.'),
 };
 
+const BLOCKED_DURING_AI = new Set(['new', 'open', 'save', 'save-as', 'exit', 'open-folder', 'close-folder']);
+
 function handleAction(action) {
   closeMenus();
+  if (diffState !== 'idle' && BLOCKED_DURING_AI.has(action)) return;
   const fn = ACTIONS[action];
   if (fn) fn();
 }
@@ -715,6 +734,256 @@ sidebarResizeHandle.addEventListener('mousedown', (e) => {
 });
 
 // ============================================================================
+// DIFF REVIEW — FLASH & SCROLL (streaming phase)
+// ============================================================================
+
+function getEditorLineHeight() {
+  const style = getComputedStyle(editor);
+  const fontSize = parseFloat(style.fontSize) || 13;
+  const lineHeight = parseFloat(style.lineHeight);
+  return isNaN(lineHeight) ? fontSize * 1.4 : lineHeight;
+}
+
+function flashOverlay(startLine, lineCount) {
+  const lh = getEditorLineHeight();
+  const padding = parseFloat(getComputedStyle(editor).paddingTop) || 4;
+  // Account for line-numbers width offset
+  const lineNumsWidth = showLineNumbers ? lineNumbers.offsetWidth : 0;
+
+  const flash = document.createElement('div');
+  flash.className = 'editor-flash';
+  flash.style.top = (padding + startLine * lh - editor.scrollTop) + 'px';
+  flash.style.height = (Math.max(lineCount, 1) * lh) + 'px';
+  flash.style.left = lineNumsWidth + 'px';
+  editorOverlay.appendChild(flash);
+  flash.addEventListener('animationend', () => flash.remove());
+}
+
+function scrollEditorToLine(lineIndex) {
+  clearTimeout(scrollDebounceTimer);
+  scrollDebounceTimer = setTimeout(() => {
+    const lh = getEditorLineHeight();
+    const targetTop = lineIndex * lh;
+    const viewportHeight = editor.clientHeight;
+    // Scroll so changed line is ~1/3 from top
+    const scrollTo = targetTop - viewportHeight / 3;
+    editor.scrollTo({ top: Math.max(0, scrollTo), behavior: 'smooth' });
+  }, 100);
+}
+
+// ============================================================================
+// DIFF REVIEW — REVIEW MODE
+// ============================================================================
+
+function enterReviewMode() {
+  postAiContent = editor.value;
+  diffHunks = DiffEngine.computeHunks(preAiSnapshot, postAiContent);
+
+  if (diffHunks.length === 0) {
+    // No actual changes detected
+    diffState = 'idle';
+    preAiSnapshot = null;
+    postAiContent = null;
+    return;
+  }
+
+  diffState = 'reviewing';
+  currentHunkIndex = 0;
+
+  // Show review bar
+  reviewBar.classList.remove('hidden');
+
+  // Make editor read-only
+  editor.readOnly = true;
+
+  // Ensure preview is visible
+  if (!showPreview) togglePreview();
+
+  // Render diff view in preview
+  renderDiffView();
+  updateReviewCounter();
+
+  // Scroll to first hunk
+  scrollToHunk(0);
+}
+
+function exitReviewMode(finalContent) {
+  diffState = 'idle';
+
+  // Restore editor writability BEFORE applying content
+  editor.readOnly = false;
+
+  // Apply resolved content
+  if (finalContent != null) {
+    applyToEditor(finalContent);
+  }
+
+  // Hide review bar
+  reviewBar.classList.add('hidden');
+
+  // Restore preview to markdown
+  if (previewHeader) previewHeader.textContent = 'Preview';
+  updatePreview();
+
+  // Clear state
+  preAiSnapshot = null;
+  postAiContent = null;
+  diffHunks = [];
+  currentHunkIndex = 0;
+}
+
+function renderDiffView() {
+  if (previewHeader) previewHeader.textContent = 'Review Changes';
+
+  const sections = DiffEngine.renderUnifiedDiff(preAiSnapshot, postAiContent, diffHunks, 3);
+  let html = '<div class="diff-view">';
+
+  for (let i = 0; i < diffHunks.length; i++) {
+    const hunk = diffHunks[i];
+    const section = sections[i];
+    const resolved = hunk.status !== 'pending';
+    const active = i === currentHunkIndex;
+
+    html += `<div class="diff-hunk${resolved ? ' resolved' : ''}${active ? ' active' : ''}" data-hunk-id="${hunk.id}" id="diff-hunk-${hunk.id}">`;
+
+    // Header
+    const statusLabel = hunk.status === 'accepted' ? ' (Accepted)' : hunk.status === 'rejected' ? ' (Rejected)' : '';
+    html += `<div class="diff-hunk-header">`;
+    html += `<span>Hunk ${i + 1}/${diffHunks.length}${statusLabel}</span>`;
+
+    if (!resolved) {
+      html += `<div class="diff-hunk-header-actions">`;
+      html += `<button class="diff-hunk-btn diff-hunk-btn-accept" data-resolve="${hunk.id}" data-action-type="accept">Accept</button>`;
+      html += `<button class="diff-hunk-btn diff-hunk-btn-reject" data-resolve="${hunk.id}" data-action-type="reject">Reject</button>`;
+      html += `</div>`;
+    }
+
+    html += `</div>`;
+
+    // Lines
+    html += `<div class="diff-lines">`;
+    if (section) {
+      for (const line of section.lines) {
+        const cls = line.type === 'added' ? 'diff-line-added'
+          : line.type === 'removed' ? 'diff-line-removed'
+          : 'diff-line-context';
+        const prefix = line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' ';
+        const escaped = escapeHtml(line.text);
+        html += `<div class="diff-line ${cls}"><span class="diff-line-prefix">${prefix}</span>${escaped}</div>`;
+      }
+    }
+    html += `</div>`;
+
+    html += `</div>`;
+  }
+
+  html += '</div>';
+  preview.innerHTML = html;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function handleDiffClick(e) {
+  const btn = e.target.closest('[data-resolve]');
+  if (!btn) return;
+  const hunkId = parseInt(btn.dataset.resolve, 10);
+  const actionType = btn.dataset.actionType;
+  const idx = diffHunks.findIndex((h) => h.id === hunkId);
+  if (idx === -1) return;
+  resolveHunk(idx, actionType);
+}
+
+function resolveHunk(idx, action) {
+  diffHunks[idx].status = action === 'accept' ? 'accepted' : 'rejected';
+  renderDiffView();
+  updateReviewCounter();
+
+  // Check if all resolved
+  const allResolved = diffHunks.every((h) => h.status !== 'pending');
+  if (allResolved) {
+    const finalContent = DiffEngine.resolveHunks(preAiSnapshot, postAiContent, diffHunks);
+    exitReviewMode(finalContent);
+    return;
+  }
+
+  // Auto-advance to next pending hunk
+  advanceToNextPending(idx);
+}
+
+function advanceToNextPending(fromIdx) {
+  // Search forward first, then wrap
+  for (let i = fromIdx + 1; i < diffHunks.length; i++) {
+    if (diffHunks[i].status === 'pending') {
+      currentHunkIndex = i;
+      renderDiffView();
+      scrollToHunk(i);
+      return;
+    }
+  }
+  for (let i = 0; i < fromIdx; i++) {
+    if (diffHunks[i].status === 'pending') {
+      currentHunkIndex = i;
+      renderDiffView();
+      scrollToHunk(i);
+      return;
+    }
+  }
+}
+
+function updateReviewCounter() {
+  const resolved = diffHunks.filter((h) => h.status !== 'pending').length;
+  reviewCounter.textContent = `${resolved}/${diffHunks.length} resolved`;
+}
+
+function acceptAllHunks() {
+  for (const h of diffHunks) {
+    if (h.status === 'pending') h.status = 'accepted';
+  }
+  const finalContent = DiffEngine.resolveHunks(preAiSnapshot, postAiContent, diffHunks);
+  exitReviewMode(finalContent);
+}
+
+function rejectAllHunks() {
+  for (const h of diffHunks) {
+    if (h.status === 'pending') h.status = 'rejected';
+  }
+  exitReviewMode(preAiSnapshot);
+}
+
+function navigateHunk(direction) {
+  if (diffHunks.length === 0) return;
+
+  // Find next pending hunk in the given direction
+  let idx = currentHunkIndex;
+  const step = direction === 'next' ? 1 : -1;
+  for (let i = 0; i < diffHunks.length; i++) {
+    idx = (idx + step + diffHunks.length) % diffHunks.length;
+    if (diffHunks[idx].status === 'pending') {
+      currentHunkIndex = idx;
+      renderDiffView();
+      scrollToHunk(idx);
+      return;
+    }
+  }
+}
+
+function scrollToHunk(idx) {
+  // Scroll the diff view in preview
+  setTimeout(() => {
+    const el = document.getElementById('diff-hunk-' + diffHunks[idx].id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 50);
+
+  // Also scroll editor to the corresponding line
+  const range = DiffEngine.hunkNewLineRange(diffHunks[idx]);
+  scrollEditorToLine(range.startLine);
+}
+
+// ============================================================================
 // AI PANEL
 // ============================================================================
 
@@ -782,6 +1051,7 @@ async function refreshEditorFromDisk() {
 
 async function aiSend(text) {
   if (!text.trim()) return;
+  if (diffState !== 'idle') return; // block during streaming/reviewing
 
   // Show panel if hidden
   if (!showAiPanel) toggleAiPanel();
@@ -790,6 +1060,10 @@ async function aiSend(text) {
   aiInput.value = '';
   aiCancelBtn.disabled = false;
   aiGoBtn.disabled = true;
+
+  // Capture snapshot before AI starts
+  preAiSnapshot = editor.value;
+  diffState = 'streaming';
 
   aiStartStream();
 
@@ -806,6 +1080,23 @@ async function aiSend(text) {
   aiEndStream();
   aiCancelBtn.disabled = true;
   aiGoBtn.disabled = false;
+
+  // Enter review mode if content changed
+  if (diffState === 'streaming' && editor.value !== preAiSnapshot) {
+    try {
+      enterReviewMode();
+    } catch (err) {
+      console.error('Failed to enter review mode:', err);
+      diffState = 'idle';
+      editor.readOnly = false;
+      reviewBar.classList.add('hidden');
+      preAiSnapshot = null;
+      postAiContent = null;
+    }
+  } else {
+    diffState = 'idle';
+    preAiSnapshot = null;
+  }
 }
 
 function aiSendQuickAction(instruction) {
@@ -839,11 +1130,18 @@ ACP.setCallbacks({
       for (const block of contents) {
         if (block.type !== 'diff' || block.newText == null) continue;
 
+        let changeStartLine = 0;
+        let changeLineCount = 1;
+
         if (block.oldText != null) {
           // Partial diff (Edit tool) — find oldText in document and replace
           const current = editor.value;
           const idx = current.indexOf(block.oldText);
           if (idx !== -1) {
+            // Calculate line position for flash
+            changeStartLine = current.substring(0, idx).split('\n').length - 1;
+            changeLineCount = block.newText.split('\n').length;
+
             const patched = current.substring(0, idx)
                           + block.newText
                           + current.substring(idx + block.oldText.length);
@@ -854,13 +1152,22 @@ ACP.setCallbacks({
           }
         } else {
           // No oldText = full file content (Write tool / new file)
+          changeStartLine = 0;
+          changeLineCount = block.newText.split('\n').length;
           editor.value = block.newText;
         }
+
         isModified = true;
         updateTitle();
         updatePreview();
         updateLineNumbers();
         updateStatus();
+
+        // Flash and scroll during streaming
+        if (diffState === 'streaming') {
+          flashOverlay(changeStartLine, changeLineCount);
+          scrollEditorToLine(changeStartLine);
+        }
       }
     }
   },
@@ -889,8 +1196,61 @@ aiCancelBtn.addEventListener('click', () => {
   aiAddMessage('Cancelled.', 'system');
   aiCancelBtn.disabled = true;
   aiGoBtn.disabled = false;
+
+  // Restore snapshot if we were streaming
+  if (diffState === 'streaming' && preAiSnapshot != null) {
+    applyToEditor(preAiSnapshot);
+    aiAddMessage('Reverted to pre-AI content.', 'system');
+  }
+  diffState = 'idle';
+  preAiSnapshot = null;
+  postAiContent = null;
+  aiEndStream();
 });
 aiCloseBtn.addEventListener('click', () => toggleAiPanel());
+
+// ============================================================================
+// REVIEW BAR EVENT LISTENERS
+// ============================================================================
+
+reviewAcceptAll.addEventListener('click', acceptAllHunks);
+reviewRejectAll.addEventListener('click', rejectAllHunks);
+reviewPrev.addEventListener('click', () => navigateHunk('prev'));
+reviewNext.addEventListener('click', () => navigateHunk('next'));
+
+// Event delegation for per-hunk accept/reject buttons in diff view
+preview.addEventListener('click', handleDiffClick);
+
+// ============================================================================
+// REVIEW MODE KEYBOARD SHORTCUTS
+// ============================================================================
+
+document.addEventListener('keydown', (e) => {
+  if (diffState !== 'reviewing') return;
+
+  // Escape → Reject All
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    rejectAllHunks();
+    return;
+  }
+
+  if (!(e.metaKey || e.ctrlKey)) return;
+
+  // Cmd+] → Next hunk
+  if (e.key === ']') {
+    e.preventDefault();
+    navigateHunk('next');
+    return;
+  }
+
+  // Cmd+[ → Previous hunk
+  if (e.key === '[') {
+    e.preventDefault();
+    navigateHunk('prev');
+    return;
+  }
+});
 
 // ============================================================================
 // INIT

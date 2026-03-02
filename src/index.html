@@ -89,6 +89,7 @@
       <div class="editor-pane" id="editor-pane">
         <div class="line-numbers" id="line-numbers"></div>
         <textarea id="editor" spellcheck="false" placeholder="Start typing markdown..."></textarea>
+        <div class="editor-overlay" id="editor-overlay"></div>
       </div>
 
       <!-- Resize Handle -->
@@ -98,6 +99,22 @@
       <div class="preview-pane" id="preview-pane">
         <div class="preview-header">Preview</div>
         <div class="preview-content" id="preview"></div>
+      </div>
+    </div>
+
+    <!-- Review Bar (shown during diff review) -->
+    <div class="review-bar hidden" id="review-bar">
+      <div class="review-bar-left">
+        <button class="review-btn review-btn-accept" id="review-accept-all">Accept All</button>
+        <button class="review-btn review-btn-reject" id="review-reject-all">Reject All</button>
+      </div>
+      <div class="review-bar-center">
+        <button class="review-btn review-btn-nav" id="review-prev">Prev</button>
+        <span class="review-counter" id="review-counter">0/0 resolved</span>
+        <button class="review-btn review-btn-nav" id="review-next">Next</button>
+      </div>
+      <div class="review-bar-right">
+        <span class="review-hint">Esc reject all</span>
       </div>
     </div>
 
@@ -134,6 +151,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="acp-client.js"></script>
+  <script src="diff-engine.js"></script>
   <script src="main.js"></script>
 </body>
 </html>
