@@ -15,6 +15,9 @@
         <div class="menu-dropdown">
           <div class="menu-option" data-action="new"><u>N</u>ew<span class="shortcut">⌘N</span></div>
           <div class="menu-option" data-action="open"><u>O</u>pen...<span class="shortcut">⌘O</span></div>
+          <div class="menu-option" data-action="open-folder">Open Fol<u>d</u>er...<span class="shortcut">⇧⌘O</span></div>
+          <div class="menu-separator"></div>
+          <div class="menu-option" data-action="close-folder">Close Folder</div>
           <div class="menu-separator"></div>
           <div class="menu-option" data-action="save"><u>S</u>ave<span class="shortcut">⌘S</span></div>
           <div class="menu-option" data-action="save-as">Save <u>A</u>s...<span class="shortcut">⇧⌘S</span></div>
@@ -26,6 +29,7 @@
         <span class="menu-label">View</span>
         <div class="menu-dropdown">
           <div class="menu-option" data-action="toggle-preview">Toggle <u>P</u>review<span class="shortcut">⌘P</span></div>
+          <div class="menu-option" data-action="toggle-sidebar"><u>S</u>idebar<span class="shortcut">⌘\</span></div>
           <div class="menu-option" data-action="toggle-line-numbers">Line <u>N</u>umbers</div>
         </div>
       </div>
@@ -53,6 +57,9 @@
       <button class="toolbar-btn" data-action="open" title="Open (⌘O)">📂</button>
       <button class="toolbar-btn" data-action="save" title="Save (⌘S)">💾</button>
       <div class="toolbar-separator"></div>
+      <button class="toolbar-btn" data-action="open-folder" title="Open Folder (⇧⌘O)">📁</button>
+      <button class="toolbar-btn" data-action="toggle-sidebar" title="Toggle Sidebar (⌘\)">🗂️</button>
+      <div class="toolbar-separator"></div>
       <button class="toolbar-btn" data-action="toggle-preview" title="Toggle Preview (⌘P)">👁️</button>
       <div class="toolbar-separator"></div>
       <button class="toolbar-btn" data-action="toggle-ai" title="AI Assistant (⇧⌘A)" id="toolbar-ai-btn">✨</button>
@@ -68,6 +75,16 @@
 
     <!-- Main Content -->
     <div class="content" id="content">
+      <!-- Sidebar (folder tree) -->
+      <div class="sidebar hidden" id="sidebar">
+        <div class="sidebar-header" id="sidebar-header">
+          <span class="sidebar-header-title" id="sidebar-header-title">Explorer</span>
+          <button class="sidebar-header-btn" id="sidebar-close-btn" title="Close">✕</button>
+        </div>
+        <div class="sidebar-tree" id="sidebar-tree"></div>
+      </div>
+      <div class="sidebar-resize-handle hidden" id="sidebar-resize-handle"></div>
+
       <!-- Editor -->
       <div class="editor-pane" id="editor-pane">
         <div class="line-numbers" id="line-numbers"></div>

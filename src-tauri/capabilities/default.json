@@ -10,11 +10,15 @@
     "fs:default",
     "fs:allow-read-text-file",
     "fs:allow-write-text-file",
+    "fs:allow-read-dir",
     "fs:allow-mkdir",
     "fs:allow-exists",
     {
       "identifier": "fs:scope",
-      "allow": [{ "path": "/tmp/scratchpad-md/**" }]
+      "allow": [
+        { "path": "/tmp/scratchpad-md/**" },
+        { "path": "$HOME/**" }
+      ]
     },
     {
       "identifier": "shell:allow-spawn",

@@ -183,11 +183,12 @@ window.ACP = (function () {
   // Public API
   // ──────────────────────────────────────────────
 
-  async function prompt(text, resourceContent, filePath) {
+  async function prompt(text, resourceContent, filePath, projectFolder) {
     if (onStatus) onStatus('connecting');
 
-    // Use file's parent directory as cwd so agent can write back
-    const cwd = filePath ? filePath.substring(0, filePath.lastIndexOf('/')) || '/' : '/';
+    // Use project folder if set, otherwise file's parent directory as cwd
+    const cwd = projectFolder
+      || (filePath ? filePath.substring(0, filePath.lastIndexOf('/')) || '/' : '/');
 
     try {
       // Fresh process for each prompt (avoids stale session bug)

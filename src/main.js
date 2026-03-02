@@ -2,7 +2,7 @@
 // Built with Tauri v2 + vanilla JS
 
 const { open, save, message } = window.__TAURI__.dialog;
-const { readTextFile, writeTextFile } = window.__TAURI__.fs;
+const { readTextFile, writeTextFile, readDir } = window.__TAURI__.fs;
 const { getCurrentWindow } = window.__TAURI__.window;
 
 // ============================================================================
@@ -17,6 +17,10 @@ let activeMenu = null;
 let isResizing = false;
 let showAiPanel = false;
 let aiStreaming = ''; // accumulates current assistant response
+let currentFolder = null;
+let showSidebar = false;
+let folderTree = [];
+let isSidebarResizing = false;
 
 // ============================================================================
 // DOM REFS
@@ -35,6 +39,11 @@ const statusChars = $('status-chars');
 const statusFile = $('status-file');
 const statusModified = $('status-modified');
 const toolbarTitle = $('toolbar-title');
+const sidebar = $('sidebar');
+const sidebarTree = $('sidebar-tree');
+const sidebarHeaderTitle = $('sidebar-header-title');
+const sidebarCloseBtn = $('sidebar-close-btn');
+const sidebarResizeHandle = $('sidebar-resize-handle');
 const aiPanel = $('ai-panel');
 const aiMessages = $('ai-messages');
 const aiInput = $('ai-input');
@@ -314,7 +323,10 @@ const ACTIONS = {
   'save':                 () => saveFile(),
   'save-as':              () => saveFileAs(),
   'exit':                 () => getCurrentWindow().close().catch(() => window.close()),
+  'open-folder':          () => openFolder(),
+  'close-folder':         () => closeFolder(),
   'toggle-preview':       () => togglePreview(),
+  'toggle-sidebar':       () => toggleSidebar(),
   'toggle-line-numbers':  () => toggleLineNumbers(),
   'bold':                 () => wrapSelection('**', '**'),
   'italic':               () => wrapSelection('_', '_'),
@@ -387,10 +399,24 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
+  // Cmd+Shift+O — open folder (before Cmd+O check via SHORTCUTS)
+  if (key === 'o' && e.shiftKey) {
+    e.preventDefault();
+    handleAction('open-folder');
+    return;
+  }
+
   // Cmd+Shift+A — toggle AI panel
   if (key === 'a' && e.shiftKey) {
     e.preventDefault();
     handleAction('toggle-ai');
+    return;
+  }
+
+  // Cmd+\ — toggle sidebar
+  if (key === '\\') {
+    e.preventDefault();
+    handleAction('toggle-sidebar');
     return;
   }
 
@@ -413,15 +439,25 @@ resizeHandle.addEventListener('mousedown', (e) => {
 });
 
 document.addEventListener('mousemove', (e) => {
+  if (isSidebarResizing) {
+    const content = $('content');
+    const rect = content.getBoundingClientRect();
+    const newWidth = Math.min(Math.max(e.clientX - rect.left, 120), 400);
+    sidebar.style.width = newWidth + 'px';
+    return;
+  }
   if (!isResizing) return;
   const content = $('content');
   const rect = content.getBoundingClientRect();
-  const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0.2), 0.8);
+  const sidebarWidth = showSidebar ? sidebar.getBoundingClientRect().width + 5 : 0;
+  const available = rect.width - sidebarWidth;
+  const offset = e.clientX - rect.left - sidebarWidth;
+  const ratio = Math.min(Math.max(offset / available, 0.2), 0.8);
   editorPane.style.flex = `0 0 ${ratio * 100}%`;
   previewPane.style.flex = `0 0 ${(1 - ratio) * 100}%`;
 });
 
-document.addEventListener('mouseup', () => { isResizing = false; });
+document.addEventListener('mouseup', () => { isResizing = false; isSidebarResizing = false; });
 
 // ============================================================================
 // DRAG & DROP
@@ -467,6 +503,17 @@ try {
   getCurrentWindow().onDragDropEvent(async (event) => {
     if (event.payload.type === 'drop' && event.payload.paths?.length > 0) {
       const path = event.payload.paths[0];
+
+      // Check if it's a directory by attempting readDir
+      try {
+        await readDir(path);
+        // Success — it's a folder
+        await setFolder(path);
+        return;
+      } catch {
+        // Not a directory — fall through to file handling
+      }
+
       if (!isMarkdownFile(path)) return;
 
       try {
@@ -482,6 +529,186 @@ try {
 } catch {
   // Fallback: native drag-drop not available
 }
+
+// ============================================================================
+// SIDEBAR / FOLDER TREE
+// ============================================================================
+
+const SKIP_DIRS = new Set(['node_modules', 'target', '.git', '.svn', '.hg', 'dist', 'build', '.DS_Store']);
+
+async function readFolderTree(dirPath) {
+  try {
+    const entries = await readDir(dirPath);
+    const items = [];
+    for (const entry of entries) {
+      const name = entry.name;
+      if (!name || name.startsWith('.') || SKIP_DIRS.has(name)) continue;
+      const fullPath = dirPath + '/' + name;
+      if (entry.isDirectory) {
+        items.push({ name, path: fullPath, isDir: true, children: null, expanded: false });
+      } else if (isMarkdownFile(name)) {
+        items.push({ name, path: fullPath, isDir: false });
+      }
+    }
+    // Sort: folders first, then alpha
+    items.sort((a, b) => {
+      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+    return items;
+  } catch (err) {
+    console.error('readFolderTree failed:', err);
+    return [];
+  }
+}
+
+function renderTree(items, container, depth) {
+  for (const item of items) {
+    const row = document.createElement('div');
+    row.className = 'tree-item';
+    if (item.path === currentFile) row.classList.add('active');
+    row.style.paddingLeft = (4 + depth * 16) + 'px';
+
+    if (item.isDir) {
+      const toggle = document.createElement('span');
+      toggle.className = 'tree-toggle';
+      toggle.textContent = item.expanded ? '−' : '+';
+      toggle.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        item.expanded = !item.expanded;
+        if (item.expanded && item.children === null) {
+          item.children = await readFolderTree(item.path);
+        }
+        renderSidebar();
+      });
+      row.appendChild(toggle);
+
+      const icon = document.createElement('span');
+      icon.className = 'tree-icon';
+      icon.textContent = item.expanded ? '📂' : '📁';
+      row.appendChild(icon);
+
+      const label = document.createElement('span');
+      label.className = 'tree-label';
+      label.textContent = item.name;
+      row.appendChild(label);
+
+      row.addEventListener('click', async () => {
+        item.expanded = !item.expanded;
+        if (item.expanded && item.children === null) {
+          item.children = await readFolderTree(item.path);
+        }
+        renderSidebar();
+      });
+
+      container.appendChild(row);
+
+      if (item.children && item.children.length > 0) {
+        const childContainer = document.createElement('div');
+        childContainer.className = 'tree-children' + (item.expanded ? ' expanded' : '');
+        renderTree(item.children, childContainer, depth + 1);
+        container.appendChild(childContainer);
+      }
+    } else {
+      const placeholder = document.createElement('span');
+      placeholder.className = 'tree-toggle-placeholder';
+      row.appendChild(placeholder);
+
+      const icon = document.createElement('span');
+      icon.className = 'tree-icon';
+      icon.textContent = '📄';
+      row.appendChild(icon);
+
+      const label = document.createElement('span');
+      label.className = 'tree-label';
+      label.textContent = item.name;
+      row.appendChild(label);
+
+      row.addEventListener('click', () => openFileFromTree(item.path));
+      container.appendChild(row);
+    }
+  }
+}
+
+function renderSidebar() {
+  sidebarTree.innerHTML = '';
+  if (folderTree.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'padding: 8px; color: var(--text-muted); font-style: italic;';
+    empty.textContent = 'No markdown files found.';
+    sidebarTree.appendChild(empty);
+    return;
+  }
+  renderTree(folderTree, sidebarTree, 0);
+}
+
+async function openFileFromTree(path) {
+  if (isModified) {
+    try {
+      const discard = await message('You have unsaved changes. Discard them?', {
+        title: 'scratchpad.md',
+        kind: 'warning',
+      });
+      if (!discard) return;
+    } catch {}
+  }
+  try {
+    editor.value = await readTextFile(path);
+    currentFile = path;
+    isModified = false;
+    refreshAll();
+    renderSidebar(); // update active highlight
+  } catch (err) {
+    console.error('Open from tree failed:', err);
+  }
+}
+
+async function openFolder() {
+  try {
+    const path = await open({ directory: true });
+    if (!path) return;
+    await setFolder(path);
+  } catch (err) {
+    console.error('Open folder failed:', err);
+  }
+}
+
+async function setFolder(path) {
+  currentFolder = path;
+  folderTree = await readFolderTree(path);
+  const folderName = path.split('/').pop().split('\\').pop();
+  sidebarHeaderTitle.textContent = folderName || 'Explorer';
+  showSidebar = true;
+  sidebar.classList.remove('hidden');
+  sidebarResizeHandle.classList.remove('hidden');
+  renderSidebar();
+}
+
+function closeFolder() {
+  currentFolder = null;
+  folderTree = [];
+  showSidebar = false;
+  sidebar.classList.add('hidden');
+  sidebarResizeHandle.classList.add('hidden');
+  sidebarTree.innerHTML = '';
+  sidebarHeaderTitle.textContent = 'Explorer';
+}
+
+function toggleSidebar() {
+  if (!currentFolder) return; // nothing to toggle without a folder
+  showSidebar = !showSidebar;
+  sidebar.classList.toggle('hidden', !showSidebar);
+  sidebarResizeHandle.classList.toggle('hidden', !showSidebar);
+}
+
+// Sidebar close button
+sidebarCloseBtn.addEventListener('click', () => closeFolder());
+
+// Sidebar resize
+sidebarResizeHandle.addEventListener('mousedown', (e) => {
+  isSidebarResizing = true;
+  e.preventDefault();
+});
 
 // ============================================================================
 // AI PANEL
@@ -564,7 +791,7 @@ async function aiSend(text) {
 
   try {
     // prompt() handles full lifecycle: spawn → init → session → prompt → cleanup
-    await ACP.prompt(text, editor.value, currentFile);
+    await ACP.prompt(text, editor.value, currentFile, currentFolder);
   } catch (err) {
     aiAddMessage('Error: ' + err.message, 'error');
   }
