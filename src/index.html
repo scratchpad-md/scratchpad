@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>scratchpad.md</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Menu Bar -->
+    <div class="menu-bar">
+      <div class="menu-item" data-menu="file">
+        <span class="menu-label">File</span>
+        <div class="menu-dropdown" id="menu-file">
+          <div class="menu-option" data-action="new"><u>N</u>ew</div>
+          <div class="menu-option" data-action="open"><u>O</u>pen...</div>
+          <div class="menu-separator"></div>
+          <div class="menu-option" data-action="save"><u>S</u>ave</div>
+          <div class="menu-option" data-action="save-as">Save <u>A</u>s...</div>
+          <div class="menu-separator"></div>
+          <div class="menu-option" data-action="exit">E<u>x</u>it</div>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="view">
+        <span class="menu-label">View</span>
+        <div class="menu-dropdown" id="menu-view">
+          <div class="menu-option" data-action="toggle-preview">Toggle <u>P</u>review</div>
+          <div class="menu-option" data-action="toggle-line-numbers">Line <u>N</u>umbers</div>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="help">
+        <span class="menu-label">Help</span>
+        <div class="menu-dropdown" id="menu-help">
+          <div class="menu-option" data-action="about"><u>A</u>bout scratchpad.md</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <button class="toolbar-btn" data-action="new" title="New">📄</button>
+      <button class="toolbar-btn" data-action="open" title="Open">📂</button>
+      <button class="toolbar-btn" data-action="save" title="Save">💾</button>
+      <div class="toolbar-separator"></div>
+      <button class="toolbar-btn" data-action="toggle-preview" title="Toggle Preview">👁️</button>
+      <div class="toolbar-separator"></div>
+      <button class="toolbar-btn" data-action="bold" title="Bold">𝐁</button>
+      <button class="toolbar-btn" data-action="italic" title="Italic">𝑰</button>
+      <button class="toolbar-btn" data-action="heading" title="Heading">#</button>
+      <button class="toolbar-btn" data-action="link" title="Link">🔗</button>
+      <button class="toolbar-btn" data-action="code" title="Code Block">&lt;/&gt;</button>
+      <div class="toolbar-flex"></div>
+      <div class="toolbar-title" id="toolbar-title">Untitled.md</div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="content" id="content">
+      <!-- Editor -->
+      <div class="editor-pane" id="editor-pane">
+        <div class="line-numbers" id="line-numbers"></div>
+        <textarea id="editor" spellcheck="false" placeholder="Start typing markdown..."></textarea>
+      </div>
+
+      <!-- Resize Handle -->
+      <div class="resize-handle" id="resize-handle"></div>
+
+      <!-- Preview -->
+      <div class="preview-pane" id="preview-pane">
+        <div class="preview-header">Preview</div>
+        <div class="preview-content" id="preview"></div>
+      </div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+      <div class="status-left">
+        <span id="status-position">Ln 1, Col 1</span>
+        <span class="status-sep">|</span>
+        <span id="status-chars">0 characters</span>
+      </div>
+      <div class="status-right">
+        <span id="status-file">Untitled.md</span>
+        <span class="status-sep">|</span>
+        <span id="status-modified">Ready</span>
+      </div>
+    </div>
+
+    <!-- About Dialog -->
+    <div class="dialog-overlay" id="about-dialog" style="display:none">
+      <div class="dialog-box">
+        <div class="dialog-titlebar">
+          <span>About scratchpad.md</span>
+          <button class="dialog-close" data-action="close-about">✕</button>
+        </div>
+        <div class="dialog-body">
+          <div class="about-logo">📝</div>
+          <h2>scratchpad.md</h2>
+          <p>Version 0.1.0</p>
+          <p class="about-desc">A markdown notepad with Y2K soul.<br>Inspired by Notepad.exe, built in Rust.</p>
+          <p class="about-copy">© 2026</p>
+          <button class="dialog-btn" data-action="close-about">OK</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>
