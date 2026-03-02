@@ -1,29 +1,80 @@
 // scratchpad.md — Y2K markdown notepad
-const { invoke } = window.__TAURI__.core;
+// Built with Tauri v2 + vanilla JS
+
 const { open, save, message } = window.__TAURI__.dialog;
 const { readTextFile, writeTextFile } = window.__TAURI__.fs;
+const { getCurrentWindow } = window.__TAURI__.window;
 
-// State
+// ============================================================================
+// STATE
+// ============================================================================
+
 let currentFile = null;
 let isModified = false;
 let showPreview = true;
 let showLineNumbers = true;
 let activeMenu = null;
+let isResizing = false;
 
-// DOM
-const editor = document.getElementById('editor');
-const preview = document.getElementById('preview');
-const previewPane = document.getElementById('preview-pane');
-const resizeHandle = document.getElementById('resize-handle');
-const lineNumbers = document.getElementById('line-numbers');
-const statusPosition = document.getElementById('status-position');
-const statusChars = document.getElementById('status-chars');
-const statusFile = document.getElementById('status-file');
-const statusModified = document.getElementById('status-modified');
-const toolbarTitle = document.getElementById('toolbar-title');
-const aboutDialog = document.getElementById('about-dialog');
+// ============================================================================
+// DOM REFS
+// ============================================================================
 
-// === FILE OPERATIONS ===
+const $ = (id) => document.getElementById(id);
+
+const editor = $('editor');
+const preview = $('preview');
+const previewPane = $('preview-pane');
+const editorPane = $('editor-pane');
+const resizeHandle = $('resize-handle');
+const lineNumbers = $('line-numbers');
+const statusPosition = $('status-position');
+const statusChars = $('status-chars');
+const statusFile = $('status-file');
+const statusModified = $('status-modified');
+const toolbarTitle = $('toolbar-title');
+
+// ============================================================================
+// README CONTENT
+// ============================================================================
+
+const README_CONTENT = `# scratchpad.md 📝
+
+A markdown notepad with **Y2K soul**. Inspired by \`notepad.exe\`, built in Rust.
+
+## Features
+
+- ✏️ Write markdown with live preview
+- 💾 Open and save .md files
+- 🎨 Split pane editing
+- ⌨️ Keyboard shortcuts (Cmd+S, Cmd+O, etc.)
+
+## Shortcuts
+
+| Key | Action |
+|-----|--------|
+| Cmd+N | New file |
+| Cmd+O | Open file |
+| Cmd+S | Save |
+| Cmd+Shift+S | Save As |
+| Cmd+P | Toggle preview |
+| Cmd+B | Bold |
+| Cmd+I | Italic |
+| Cmd+Z | Undo |
+| Cmd+Shift+Z | Redo |
+
+## Roadmap
+
+- **v2**: Integrate [claude-agent-acp](https://github.com/zed-industries/claude-agent-acp) for AI-assisted editing
+
+---
+
+> *v0.1.0 — 2026*
+`;
+
+// ============================================================================
+// UI UPDATES
+// ============================================================================
 
 function getFileName() {
   if (!currentFile) return 'Untitled.md';
@@ -32,10 +83,49 @@ function getFileName() {
 
 function updateTitle() {
   const name = getFileName();
-  const modified = isModified ? '● ' : '';
-  toolbarTitle.textContent = modified + name;
+  toolbarTitle.textContent = (isModified ? '● ' : '') + name;
   statusFile.textContent = name;
   statusModified.textContent = isModified ? 'Modified' : 'Ready';
+}
+
+function updatePreview() {
+  if (!showPreview) return;
+  try {
+    preview.innerHTML = marked.parse(editor.value || '');
+  } catch {
+    preview.textContent = editor.value;
+  }
+}
+
+function updateLineNumbers() {
+  if (!showLineNumbers) {
+    lineNumbers.style.display = 'none';
+    return;
+  }
+  lineNumbers.style.display = '';
+  const count = editor.value.split('\n').length;
+  let html = '';
+  for (let i = 1; i <= count; i++) {
+    html += `<div>${i}</div>`;
+  }
+  lineNumbers.innerHTML = html;
+}
+
+function updateStatus() {
+  const val = editor.value;
+  const pos = editor.selectionStart;
+  const before = val.substring(0, pos);
+  const line = before.split('\n').length;
+  const col = pos - before.lastIndexOf('\n');
+  statusPosition.textContent = `Ln ${line}, Col ${col}`;
+  statusChars.textContent = `${val.length} characters`;
+}
+
+function refreshAll() {
+  updateTitle();
+  updatePreview();
+  updateLineNumbers();
+  updateStatus();
 }
 
 function markModified() {
@@ -45,20 +135,35 @@ function markModified() {
   }
 }
 
+// ============================================================================
+// FILE OPERATIONS
+// ============================================================================
+
 async function newFile() {
   if (isModified) {
-    const ok = await message('Save changes before creating a new file?', {
-      title: 'scratchpad.md',
-      kind: 'warning',
-      okLabel: 'Discard',
-      cancelLabel: 'Cancel',
-    });
-    if (!ok) return;
+    try {
+      const discard = await message('You have unsaved changes. Discard them?', {
+        title: 'scratchpad.md',
+        kind: 'warning',
+      });
+      if (!discard) return;
+    } catch {
+      // Dialog unavailable — proceed anyway
+    }
   }
   editor.value = '';
   currentFile = null;
   isModified = false;
-  updateTitle();
+  refreshAll();
+}
+
+function loadReadme() {
+  editor.value = README_CONTENT;
+  currentFile = null;
+  isModified = false;
+  toolbarTitle.textContent = 'README.md';
+  statusFile.textContent = 'README.md';
+  statusModified.textContent = 'Ready';
   updatePreview();
   updateLineNumbers();
   updateStatus();
@@ -68,21 +173,14 @@ async function openFile() {
   try {
     const path = await open({
       multiple: false,
-      filters: [{
-        name: 'Markdown',
-        extensions: ['md', 'markdown', 'txt']
-      }]
+      filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
     });
     if (!path) return;
 
-    const content = await readTextFile(path);
-    editor.value = content;
+    editor.value = await readTextFile(path);
     currentFile = path;
     isModified = false;
-    updateTitle();
-    updatePreview();
-    updateLineNumbers();
-    updateStatus();
+    refreshAll();
   } catch (err) {
     console.error('Open failed:', err);
   }
@@ -102,33 +200,23 @@ async function saveFile() {
 async function saveFileAs() {
   try {
     const path = await save({
-      filters: [{
-        name: 'Markdown',
-        extensions: ['md', 'markdown', 'txt']
-      }],
-      defaultPath: getFileName()
+      filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
+      defaultPath: getFileName(),
     });
     if (!path) return;
 
     await writeTextFile(path, editor.value);
     currentFile = path;
     isModified = false;
-    updateTitle();
+    refreshAll();
   } catch (err) {
     console.error('Save As failed:', err);
   }
 }
 
-// === PREVIEW ===
-
-function updatePreview() {
-  if (!showPreview) return;
-  try {
-    preview.innerHTML = marked.parse(editor.value || '');
-  } catch {
-    preview.textContent = editor.value;
-  }
-}
+// ============================================================================
+// VIEW TOGGLES
+// ============================================================================
 
 function togglePreview() {
   showPreview = !showPreview;
@@ -137,65 +225,42 @@ function togglePreview() {
   if (showPreview) updatePreview();
 }
 
-// === LINE NUMBERS ===
-
-function updateLineNumbers() {
-  if (!showLineNumbers) {
-    lineNumbers.style.display = 'none';
-    return;
-  }
-  lineNumbers.style.display = '';
-  const lines = editor.value.split('\n').length;
-  let html = '';
-  for (let i = 1; i <= lines; i++) {
-    html += i + '\n';
-  }
-  lineNumbers.textContent = html;
-}
-
 function toggleLineNumbers() {
   showLineNumbers = !showLineNumbers;
   updateLineNumbers();
 }
 
-// === STATUS BAR ===
-
-function updateStatus() {
-  const val = editor.value;
-  const pos = editor.selectionStart;
-  const before = val.substring(0, pos);
-  const line = before.split('\n').length;
-  const col = pos - before.lastIndexOf('\n');
-  statusPosition.textContent = `Ln ${line}, Col ${col}`;
-  statusChars.textContent = `${val.length} characters`;
-}
-
-// === TOOLBAR MARKDOWN HELPERS ===
+// ============================================================================
+// MARKDOWN TOOLBAR HELPERS
+// ============================================================================
 
 function wrapSelection(before, after) {
+  editor.focus();
   const start = editor.selectionStart;
   const end = editor.selectionEnd;
-  const selected = editor.value.substring(start, end);
-  const replacement = before + (selected || 'text') + after;
-  editor.value = editor.value.substring(0, start) + replacement + editor.value.substring(end);
+  const selected = editor.value.substring(start, end) || 'text';
+  const replacement = before + selected + after;
+  document.execCommand('insertText', false, replacement);
   editor.selectionStart = start + before.length;
-  editor.selectionEnd = start + replacement.length - after.length;
-  editor.focus();
+  editor.selectionEnd = start + before.length + selected.length;
   markModified();
   updatePreview();
   updateLineNumbers();
 }
 
-// === MENU SYSTEM ===
+// ============================================================================
+// MENU SYSTEM
+// ============================================================================
 
 function closeMenus() {
-  document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.menu-item').forEach((el) => el.classList.remove('active'));
   activeMenu = null;
 }
 
-document.querySelectorAll('.menu-item').forEach(item => {
+document.querySelectorAll('.menu-item').forEach((item) => {
   item.addEventListener('mousedown', (e) => {
     e.preventDefault();
+    if (e.target.closest('.menu-option')) return;
     const menu = item.dataset.menu;
     if (activeMenu === menu) {
       closeMenus();
@@ -216,31 +281,33 @@ document.querySelectorAll('.menu-item').forEach(item => {
 });
 
 document.addEventListener('mousedown', (e) => {
-  if (!e.target.closest('.menu-item')) {
-    closeMenus();
-  }
+  if (!e.target.closest('.menu-item')) closeMenus();
 });
 
-// === ACTION DISPATCH ===
+// ============================================================================
+// ACTION DISPATCH
+// ============================================================================
+
+const ACTIONS = {
+  'new':                  () => newFile(),
+  'open':                 () => openFile(),
+  'save':                 () => saveFile(),
+  'save-as':              () => saveFileAs(),
+  'exit':                 () => getCurrentWindow().close().catch(() => window.close()),
+  'toggle-preview':       () => togglePreview(),
+  'toggle-line-numbers':  () => toggleLineNumbers(),
+  'bold':                 () => wrapSelection('**', '**'),
+  'italic':               () => wrapSelection('_', '_'),
+  'heading':              () => wrapSelection('## ', ''),
+  'link':                 () => wrapSelection('[', '](url)'),
+  'code':                 () => wrapSelection('```\n', '\n```'),
+  'about':                () => loadReadme(),
+};
 
 function handleAction(action) {
   closeMenus();
-  switch (action) {
-    case 'new': newFile(); break;
-    case 'open': openFile(); break;
-    case 'save': saveFile(); break;
-    case 'save-as': saveFileAs(); break;
-    case 'exit': window.__TAURI__.core.invoke('plugin:process|exit', { code: 0 }); break;
-    case 'toggle-preview': togglePreview(); break;
-    case 'toggle-line-numbers': toggleLineNumbers(); break;
-    case 'bold': wrapSelection('**', '**'); break;
-    case 'italic': wrapSelection('_', '_'); break;
-    case 'heading': wrapSelection('## ', ''); break;
-    case 'link': wrapSelection('[', '](url)'); break;
-    case 'code': wrapSelection('```\n', '\n```'); break;
-    case 'about': aboutDialog.style.display = ''; break;
-    case 'close-about': aboutDialog.style.display = 'none'; break;
-  }
+  const fn = ACTIONS[action];
+  if (fn) fn();
 }
 
 document.addEventListener('click', (e) => {
@@ -248,7 +315,9 @@ document.addEventListener('click', (e) => {
   if (action) handleAction(action);
 });
 
-// === EDITOR EVENTS ===
+// ============================================================================
+// EDITOR EVENTS
+// ============================================================================
 
 editor.addEventListener('input', () => {
   markModified();
@@ -259,44 +328,53 @@ editor.addEventListener('input', () => {
 
 editor.addEventListener('keyup', updateStatus);
 editor.addEventListener('click', updateStatus);
+editor.addEventListener('scroll', () => { lineNumbers.scrollTop = editor.scrollTop; });
 
-editor.addEventListener('scroll', () => {
-  lineNumbers.scrollTop = editor.scrollTop;
-});
-
-// Tab key support
+// Tab → 4 spaces (preserves undo stack)
 editor.addEventListener('keydown', (e) => {
   if (e.key === 'Tab') {
     e.preventDefault();
-    const start = editor.selectionStart;
-    editor.value = editor.value.substring(0, start) + '    ' + editor.value.substring(editor.selectionEnd);
-    editor.selectionStart = editor.selectionEnd = start + 4;
+    document.execCommand('insertText', false, '    ');
     markModified();
     updateLineNumbers();
   }
 });
 
-// Keyboard shortcuts
+// ============================================================================
+// KEYBOARD SHORTCUTS
+// ============================================================================
+
+const SHORTCUTS = {
+  'n': 'new',
+  'o': 'open',
+  'b': 'bold',
+  'i': 'italic',
+  'p': 'toggle-preview',
+};
+
 document.addEventListener('keydown', (e) => {
-  if (e.metaKey || e.ctrlKey) {
-    switch (e.key.toLowerCase()) {
-      case 'n': e.preventDefault(); handleAction('new'); break;
-      case 'o': e.preventDefault(); handleAction('open'); break;
-      case 's':
-        e.preventDefault();
-        if (e.shiftKey) handleAction('save-as');
-        else handleAction('save');
-        break;
-      case 'p': e.preventDefault(); handleAction('toggle-preview'); break;
-      case 'b': e.preventDefault(); handleAction('bold'); break;
-      case 'i': e.preventDefault(); handleAction('italic'); break;
-    }
+  if (!(e.metaKey || e.ctrlKey)) return;
+  const key = e.key.toLowerCase();
+
+  // Cmd+S / Cmd+Shift+S
+  if (key === 's') {
+    e.preventDefault();
+    handleAction(e.shiftKey ? 'save-as' : 'save');
+    return;
   }
+
+  // Simple shortcuts
+  const action = SHORTCUTS[key];
+  if (action) {
+    e.preventDefault();
+    handleAction(action);
+  }
+  // Cmd+Z / Cmd+Shift+Z — native undo/redo, no interception needed
 });
 
-// === RESIZE HANDLE ===
-
-let isResizing = false;
+// ============================================================================
+// RESIZE HANDLE (split pane drag)
+// ============================================================================
 
 resizeHandle.addEventListener('mousedown', (e) => {
   isResizing = true;
@@ -305,56 +383,17 @@ resizeHandle.addEventListener('mousedown', (e) => {
 
 document.addEventListener('mousemove', (e) => {
   if (!isResizing) return;
-  const content = document.getElementById('content');
+  const content = $('content');
   const rect = content.getBoundingClientRect();
-  const ratio = (e.clientX - rect.left) / rect.width;
-  const clamped = Math.min(Math.max(ratio, 0.2), 0.8);
-  document.getElementById('editor-pane').style.flex = `0 0 ${clamped * 100}%`;
-  previewPane.style.flex = `0 0 ${(1 - clamped) * 100}%`;
+  const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0.2), 0.8);
+  editorPane.style.flex = `0 0 ${ratio * 100}%`;
+  previewPane.style.flex = `0 0 ${(1 - ratio) * 100}%`;
 });
 
-document.addEventListener('mouseup', () => {
-  isResizing = false;
-});
+document.addEventListener('mouseup', () => { isResizing = false; });
 
-// === INIT ===
+// ============================================================================
+// INIT
+// ============================================================================
 
-updatePreview();
-updateLineNumbers();
-updateStatus();
-updateTitle();
-
-// Welcome content
-editor.value = `# Welcome to scratchpad.md 📝
-
-A markdown notepad with **Y2K soul**.
-
-## Features
-
-- ✏️ Write markdown with live preview
-- 💾 Open and save .md files  
-- 🎨 Split pane editing
-- ⌨️ Keyboard shortcuts (Cmd+S, Cmd+O, etc.)
-
-## Shortcuts
-
-| Key | Action |
-|-----|--------|
-| Cmd+N | New file |
-| Cmd+O | Open file |
-| Cmd+S | Save |
-| Cmd+Shift+S | Save As |
-| Cmd+P | Toggle preview |
-| Cmd+B | Bold |
-| Cmd+I | Italic |
-
----
-
-> Built with Rust + Tauri. Inspired by Notepad.exe.
-> 
-> *v0.1.0 — 2026*
-`;
-
-updatePreview();
-updateLineNumbers();
-updateStatus();
+loadReadme();

@@ -1,36 +1,45 @@
-/* === Y2K AESTHETIC === */
-/* Windows 98/2000 inspired color palette */
+/* ============================================================================
+   scratchpad.md — Y2K Aesthetic
+   Windows 98/2000 inspired color palette & chrome
+   ============================================================================ */
+
 :root {
+  /* Chrome */
   --chrome-bg: #d4d0c8;
   --chrome-light: #ffffff;
   --chrome-dark: #808080;
   --chrome-darker: #404040;
-  --window-bg: #ece9d8;
+
+  /* Surfaces */
+  --editor-bg: #ffffff;
+  --preview-bg: #f5f0e6;
+  --status-bg: #d4d0c8;
+
+  /* Accent colors */
   --teal: #008080;
   --teal-dark: #005a5a;
   --purple: #800080;
   --silver: #c0c0c0;
-  --editor-bg: #ffffff;
-  --preview-bg: #f5f0e6;
+  --accent: #003c74;
+
+  /* Menu */
   --menu-hover: #0a246a;
   --menu-hover-text: #ffffff;
-  --status-bg: #d4d0c8;
-  --border-raised-outer: #ffffff;
-  --border-raised-inner: #d4d0c8;
-  --border-sunken-outer: #808080;
-  --border-sunken-inner: #404040;
+
+  /* Beveled borders */
+  --bevel-light: #ffffff;
+  --bevel-dark: #808080;
+
+  /* Text */
   --text: #000000;
   --text-muted: #555555;
-  --accent: #003c74;
-  --scrollbar-bg: #d4d0c8;
-  --scrollbar-thumb: #c0c0c0;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+/* ============================================================================
+   RESET & BASE
+   ============================================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
   font-family: "MS Sans Serif", "Microsoft Sans Serif", Tahoma, Geneva, sans-serif;
@@ -48,18 +57,10 @@ body {
   height: 100vh;
 }
 
-/* === BEVELED BORDERS === */
-.bevel-raised {
-  border: 2px solid;
-  border-color: var(--border-raised-outer) var(--border-sunken-outer) var(--border-sunken-outer) var(--border-raised-outer);
-}
+/* ============================================================================
+   MENU BAR
+   ============================================================================ */
 
-.bevel-sunken {
-  border: 2px solid;
-  border-color: var(--border-sunken-outer) var(--border-raised-outer) var(--border-raised-outer) var(--border-sunken-outer);
-}
-
-/* === MENU BAR === */
 .menu-bar {
   display: flex;
   background: var(--chrome-bg);
@@ -73,14 +74,14 @@ body {
   cursor: default;
 }
 
+.menu-label {
+  padding: 1px 4px;
+}
+
 .menu-item:hover .menu-label,
 .menu-item.active .menu-label {
   background: var(--menu-hover);
   color: var(--menu-hover-text);
-  padding: 1px 4px;
-}
-
-.menu-label {
   padding: 1px 4px;
 }
 
@@ -91,11 +92,11 @@ body {
   left: 0;
   background: var(--chrome-bg);
   border: 2px solid;
-  border-color: var(--border-raised-outer) var(--border-sunken-outer) var(--border-sunken-outer) var(--border-raised-outer);
-  min-width: 180px;
+  border-color: var(--bevel-light) var(--bevel-dark) var(--bevel-dark) var(--bevel-light);
+  min-width: 200px;
   z-index: 1000;
   padding: 2px;
-  box-shadow: 2px 2px 0 rgba(0,0,0,0.3);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.3);
 }
 
 .menu-item.active .menu-dropdown {
@@ -103,7 +104,10 @@ body {
 }
 
 .menu-option {
-  padding: 4px 24px 4px 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 12px 4px 8px;
   cursor: default;
   white-space: nowrap;
 }
@@ -117,6 +121,16 @@ body {
   text-decoration: underline;
 }
 
+.menu-option .shortcut {
+  margin-left: 24px;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.menu-option:hover .shortcut {
+  opacity: 1;
+}
+
 .menu-separator {
   height: 1px;
   background: var(--chrome-dark);
@@ -124,7 +138,10 @@ body {
   border-bottom: 1px solid var(--chrome-light);
 }
 
-/* === TOOLBAR === */
+/* ============================================================================
+   TOOLBAR
+   ============================================================================ */
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -149,13 +166,11 @@ body {
 }
 
 .toolbar-btn:hover {
-  border: 1px solid;
-  border-color: var(--border-raised-outer) var(--border-sunken-outer) var(--border-sunken-outer) var(--border-raised-outer);
+  border-color: var(--bevel-light) var(--bevel-dark) var(--bevel-dark) var(--bevel-light);
 }
 
 .toolbar-btn:active {
-  border: 1px solid;
-  border-color: var(--border-sunken-outer) var(--border-raised-outer) var(--border-raised-outer) var(--border-sunken-outer);
+  border-color: var(--bevel-dark) var(--bevel-light) var(--bevel-light) var(--bevel-dark);
   padding: 1px 0 0 1px;
 }
 
@@ -167,9 +182,7 @@ body {
   margin: 0 3px;
 }
 
-.toolbar-flex {
-  flex: 1;
-}
+.toolbar-flex { flex: 1; }
 
 .toolbar-title {
   font-size: 11px;
@@ -178,22 +191,27 @@ body {
   font-style: italic;
 }
 
-/* === CONTENT AREA === */
+/* ============================================================================
+   CONTENT AREA (editor + preview split)
+   ============================================================================ */
+
 .content {
   flex: 1;
   display: flex;
   overflow: hidden;
   border: 2px solid;
-  border-color: var(--border-sunken-outer) var(--border-raised-outer) var(--border-raised-outer) var(--border-sunken-outer);
+  border-color: var(--bevel-dark) var(--bevel-light) var(--bevel-light) var(--bevel-dark);
   margin: 0 2px;
 }
 
-/* === EDITOR === */
+/* ============================================================================
+   EDITOR PANE
+   ============================================================================ */
+
 .editor-pane {
   flex: 1;
   display: flex;
   min-width: 200px;
-  position: relative;
   background: var(--editor-bg);
 }
 
@@ -205,10 +223,14 @@ body {
   text-align: right;
   font-family: "Fixedsys", "Courier New", Courier, monospace;
   font-size: 13px;
-  line-height: 1.4;
   color: var(--text-muted);
   overflow: hidden;
   user-select: none;
+}
+
+.line-numbers div {
+  line-height: 1.4;
+  height: 1.4em;
 }
 
 #editor {
@@ -234,7 +256,10 @@ body {
   font-style: italic;
 }
 
-/* === RESIZE HANDLE === */
+/* ============================================================================
+   RESIZE HANDLE
+   ============================================================================ */
+
 .resize-handle {
   width: 5px;
   background: var(--chrome-bg);
@@ -252,7 +277,10 @@ body {
   font-size: 14px;
 }
 
-/* === PREVIEW === */
+/* ============================================================================
+   PREVIEW PANE
+   ============================================================================ */
+
 .preview-pane {
   flex: 1;
   display: flex;
@@ -261,14 +289,7 @@ body {
   background: var(--preview-bg);
 }
 
-.preview-pane.hidden {
-  display: none;
-}
-
-.preview-pane.hidden + .resize-handle,
-.resize-handle:has(+ .preview-pane.hidden) {
-  display: none;
-}
+.preview-pane.hidden { display: none; }
 
 .preview-header {
   padding: 2px 8px;
@@ -292,7 +313,8 @@ body {
   line-height: 1.6;
 }
 
-/* Preview markdown styles */
+/* --- Preview: Markdown rendered styles --- */
+
 .preview-content h1 {
   font-size: 22px;
   color: var(--teal-dark);
@@ -315,9 +337,7 @@ body {
   margin: 8px 0 4px;
 }
 
-.preview-content p {
-  margin: 6px 0;
-}
+.preview-content p { margin: 6px 0; }
 
 .preview-content code {
   background: #e0ddd4;
@@ -332,7 +352,7 @@ body {
   color: #00ff88;
   padding: 10px;
   border: 2px solid;
-  border-color: var(--border-sunken-outer) var(--border-raised-outer) var(--border-raised-outer) var(--border-sunken-outer);
+  border-color: var(--bevel-dark) var(--bevel-light) var(--bevel-light) var(--bevel-dark);
   overflow-x: auto;
   margin: 8px 0;
   font-family: "Fixedsys", "Courier New", monospace;
@@ -360,7 +380,8 @@ body {
   text-decoration: underline;
 }
 
-.preview-content ul, .preview-content ol {
+.preview-content ul,
+.preview-content ol {
   padding-left: 24px;
   margin: 6px 0;
 }
@@ -368,7 +389,7 @@ body {
 .preview-content img {
   max-width: 100%;
   border: 2px solid;
-  border-color: var(--border-sunken-outer) var(--border-raised-outer) var(--border-raised-outer) var(--border-sunken-outer);
+  border-color: var(--bevel-dark) var(--bevel-light) var(--bevel-light) var(--bevel-dark);
 }
 
 .preview-content table {
@@ -377,7 +398,8 @@ body {
   width: 100%;
 }
 
-.preview-content th, .preview-content td {
+.preview-content th,
+.preview-content td {
   border: 1px solid var(--chrome-dark);
   padding: 4px 8px;
   text-align: left;
@@ -392,7 +414,10 @@ body {
   background: #e8e4d8;
 }
 
-/* === STATUS BAR === */
+/* ============================================================================
+   STATUS BAR
+   ============================================================================ */
+
 .status-bar {
   display: flex;
   justify-content: space-between;
@@ -400,12 +425,13 @@ body {
   padding: 2px 8px;
   background: var(--status-bg);
   border-top: 2px solid;
-  border-color: var(--border-raised-outer) transparent transparent var(--border-raised-outer);
+  border-color: var(--bevel-light) transparent transparent var(--bevel-light);
   font-size: 11px;
   min-height: 20px;
 }
 
-.status-left, .status-right {
+.status-left,
+.status-right {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -416,117 +442,32 @@ body {
   margin: 0 2px;
 }
 
-#status-modified {
-  color: var(--teal-dark);
-}
+#status-modified { color: var(--teal-dark); }
 
-/* === DIALOG === */
-.dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 9999;
-}
+/* ============================================================================
+   Y2K SCROLLBARS
+   ============================================================================ */
 
-.dialog-box {
-  background: var(--chrome-bg);
-  border: 2px solid;
-  border-color: var(--border-raised-outer) var(--border-sunken-outer) var(--border-sunken-outer) var(--border-raised-outer);
-  box-shadow: 4px 4px 0 rgba(0,0,0,0.4);
-  min-width: 320px;
-}
-
-.dialog-titlebar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 3px 4px 3px 8px;
-  background: linear-gradient(90deg, var(--accent), var(--teal));
-  color: white;
-  font-weight: bold;
-  font-size: 11px;
-}
-
-.dialog-close {
-  width: 16px;
-  height: 14px;
-  background: var(--chrome-bg);
-  border: 1px solid;
-  border-color: var(--border-raised-outer) var(--border-sunken-outer) var(--border-sunken-outer) var(--border-raised-outer);
-  font-size: 9px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-
-.dialog-body {
-  padding: 20px;
-  text-align: center;
-}
-
-.about-logo {
-  font-size: 48px;
-  margin-bottom: 8px;
-}
-
-.dialog-body h2 {
-  font-size: 16px;
-  color: var(--teal-dark);
-  margin-bottom: 4px;
-}
-
-.about-desc {
-  margin: 10px 0;
-  color: var(--text-muted);
-  line-height: 1.5;
-}
-
-.about-copy {
-  font-size: 10px;
-  color: var(--chrome-dark);
-  margin-bottom: 12px;
-}
-
-.dialog-btn {
-  padding: 4px 24px;
-  background: var(--chrome-bg);
-  border: 2px solid;
-  border-color: var(--border-raised-outer) var(--border-sunken-outer) var(--border-sunken-outer) var(--border-raised-outer);
-  cursor: pointer;
-  font-size: 11px;
-  font-family: inherit;
-}
-
-.dialog-btn:active {
-  border-color: var(--border-sunken-outer) var(--border-raised-outer) var(--border-raised-outer) var(--border-sunken-outer);
-}
-
-/* === SCROLLBAR Y2K === */
 ::-webkit-scrollbar {
   width: 16px;
   height: 16px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--scrollbar-bg);
+  background: var(--chrome-bg);
   border: 1px solid var(--chrome-dark);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
+  background: var(--silver);
   border: 2px solid;
-  border-color: var(--border-raised-outer) var(--border-sunken-outer) var(--border-sunken-outer) var(--border-raised-outer);
+  border-color: var(--bevel-light) var(--bevel-dark) var(--bevel-dark) var(--bevel-light);
 }
 
 ::-webkit-scrollbar-button {
   background: var(--chrome-bg);
   border: 1px solid;
-  border-color: var(--border-raised-outer) var(--border-sunken-outer) var(--border-sunken-outer) var(--border-raised-outer);
+  border-color: var(--bevel-light) var(--bevel-dark) var(--bevel-dark) var(--bevel-light);
   width: 16px;
   height: 16px;
 }
