@@ -73,6 +73,17 @@ A markdown notepad with **Y2K soul**. Inspired by \`notepad.exe\`, built in Rust
 `;
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+
+const VALID_EXTENSIONS = ['md', 'markdown', 'txt'];
+
+function isMarkdownFile(filename) {
+  const ext = filename.split('.').pop().toLowerCase();
+  return VALID_EXTENSIONS.includes(ext);
+}
+
+// ============================================================================
 // UI UPDATES
 // ============================================================================
 
@@ -173,7 +184,7 @@ async function openFile() {
   try {
     const path = await open({
       multiple: false,
-      filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
+      filters: [{ name: 'Markdown', extensions: VALID_EXTENSIONS }],
     });
     if (!path) return;
 
@@ -200,7 +211,7 @@ async function saveFile() {
 async function saveFileAs() {
   try {
     const path = await save({
-      filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }],
+      filters: [{ name: 'Markdown', extensions: VALID_EXTENSIONS }],
       defaultPath: getFileName(),
     });
     if (!path) return;
@@ -411,27 +422,22 @@ document.addEventListener('drop', async (e) => {
   e.stopPropagation();
   document.body.classList.remove('dragging');
 
-  // Tauri v2 exposes dropped file paths via the onDragDropEvent API
-  // But for webview drops, we check the dataTransfer
+  // Webview fallback — no full path available, so Save As required after
   const files = e.dataTransfer?.files;
   if (!files || files.length === 0) return;
 
   const file = files[0];
-  const ext = file.name.split('.').pop().toLowerCase();
-  if (!['md', 'markdown', 'txt'].includes(ext)) return;
+  if (!isMarkdownFile(file.name)) return;
 
-  // Read via FileReader (webview handles the file object)
   const reader = new FileReader();
   reader.onload = () => {
     editor.value = reader.result;
-    currentFile = null; // Can't get full path from webview drop
+    currentFile = null;
     isModified = false;
+    refreshAll();
+    // Override title since currentFile is null
     toolbarTitle.textContent = file.name;
     statusFile.textContent = file.name;
-    statusModified.textContent = 'Ready';
-    updatePreview();
-    updateLineNumbers();
-    updateStatus();
   };
   reader.readAsText(file);
 });
@@ -441,8 +447,7 @@ try {
   getCurrentWindow().onDragDropEvent(async (event) => {
     if (event.payload.type === 'drop' && event.payload.paths?.length > 0) {
       const path = event.payload.paths[0];
-      const ext = path.split('.').pop().toLowerCase();
-      if (!['md', 'markdown', 'txt'].includes(ext)) return;
+      if (!isMarkdownFile(path)) return;
 
       try {
         editor.value = await readTextFile(path);
