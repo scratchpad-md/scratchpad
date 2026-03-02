@@ -393,6 +393,72 @@ document.addEventListener('mousemove', (e) => {
 document.addEventListener('mouseup', () => { isResizing = false; });
 
 // ============================================================================
+// DRAG & DROP
+// ============================================================================
+
+document.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  document.body.classList.add('dragging');
+});
+
+document.addEventListener('dragleave', (e) => {
+  if (!e.relatedTarget) document.body.classList.remove('dragging');
+});
+
+document.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  document.body.classList.remove('dragging');
+
+  // Tauri v2 exposes dropped file paths via the onDragDropEvent API
+  // But for webview drops, we check the dataTransfer
+  const files = e.dataTransfer?.files;
+  if (!files || files.length === 0) return;
+
+  const file = files[0];
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['md', 'markdown', 'txt'].includes(ext)) return;
+
+  // Read via FileReader (webview handles the file object)
+  const reader = new FileReader();
+  reader.onload = () => {
+    editor.value = reader.result;
+    currentFile = null; // Can't get full path from webview drop
+    isModified = false;
+    toolbarTitle.textContent = file.name;
+    statusFile.textContent = file.name;
+    statusModified.textContent = 'Ready';
+    updatePreview();
+    updateLineNumbers();
+    updateStatus();
+  };
+  reader.readAsText(file);
+});
+
+// Also listen for Tauri's native file drop events
+try {
+  getCurrentWindow().onDragDropEvent(async (event) => {
+    if (event.payload.type === 'drop' && event.payload.paths?.length > 0) {
+      const path = event.payload.paths[0];
+      const ext = path.split('.').pop().toLowerCase();
+      if (!['md', 'markdown', 'txt'].includes(ext)) return;
+
+      try {
+        editor.value = await readTextFile(path);
+        currentFile = path;
+        isModified = false;
+        refreshAll();
+      } catch (err) {
+        console.error('Drop open failed:', err);
+      }
+    }
+  });
+} catch {
+  // Fallback: native drag-drop not available
+}
+
+// ============================================================================
 // INIT
 // ============================================================================
 
